@@ -394,55 +394,49 @@ if st.session_state.analysis_stage == 2 and 'analysis' in st.session_state.analy
                 f"{coverage_pct:.0f}%",
                 help="Percentage of topics with good coverage"
             )
-        
+
         # Detailed Analysis Table
         st.subheader("Detailed Topic Analysis")
         st.markdown("Here's how well your content covers each main topic:")
-        
-        # Build hierarchical table data
-        table_data = []
+
+        # Use columns for better display
         for ds in results.dimension_scores:
             path_parts = ds.dimension_path.split(' > ')
             level = len(path_parts)
             
-            # Format dimension name based on level
-            if level == 1:
-                display_name = f"**{path_parts[-1]}**"
-            elif level == 2:
-                display_name = f"└─ {path_parts[-1]}"
-            else:
-                display_name = f"{'  ' * (level-1)}└─ {path_parts[-1]}"
+            # Create columns
+            col1, col2, col3, col4, col5 = st.columns([3, 1, 1, 4, 1])
             
-            table_data.append({
-                "Topic": display_name,
-                "Score": ds.score,
-                "Status": "✅ Strong" if ds.score > 50 else "❌ Needs Work",
-                "Details": ds.reasoning,
-                "Coverage": ds.child_coverage if ds.child_coverage else "-"
-            })
-        
-        # Create DataFrame
-        df = pd.DataFrame(table_data)
-        
-        # Display with custom column config
-        st.dataframe(
-            df,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "Topic": st.column_config.TextColumn("Topic", width="medium"),
-                "Score": st.column_config.ProgressColumn(
-                    "Score",
-                    help="Coverage score out of 100",
-                    format="%d",
-                    min_value=0,
-                    max_value=100,
-                ),
-                "Status": st.column_config.TextColumn("Status", width="small"),
-                "Details": st.column_config.TextColumn("Analysis", width="large"),
-                "Coverage": st.column_config.TextColumn("Sub-topics", width="small")
-            }
-        )
+            with col1:
+                # Format dimension name based on level
+                if level == 1:
+                    st.markdown(f"**{path_parts[-1]}**")
+                else:
+                    indent = "&nbsp;" * (4 * (level-1))
+                    st.markdown(f"{indent}└─ {path_parts[-1]}", unsafe_allow_html=True)
+            
+            with col2:
+                # Score with progress bar
+                st.progress(ds.score / 100)
+                st.caption(f"{ds.score}%")
+            
+            with col3:
+                # Status
+                if ds.score > 50:
+                    st.success("✅ Strong")
+                else:
+                    st.error("❌ Needs Work")
+            
+            with col4:
+                # Analysis reasoning
+                st.write(ds.reasoning)
+            
+            with col5:
+                # Coverage
+                st.write(ds.child_coverage if ds.child_coverage else "-")
+            
+            # Add separator
+            st.markdown("---")
         
         # Recommendations
         st.subheader("💡 My Recommendations")
