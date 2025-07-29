@@ -8,3 +8,11 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+tests/
+output/
+data/
+config/
+aio_samples/
+.streamlit/secrets.toml
+secrets.toml
+.env
