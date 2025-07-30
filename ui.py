@@ -7,6 +7,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 import csv
+import base64
 
 # Import our modules
 from config import DEEPSEEK_API_KEY
@@ -70,6 +71,69 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+st.markdown("""
+<style>
+/* Print styles */
+@media print {
+    /* Hide Streamlit UI elements */
+    header[data-testid="stHeader"],
+    section[data-testid="stSidebar"],
+    button,
+    footer,
+    .stDownloadButton {
+        display: none !important;
+    }
+    
+    /* Show print-only elements */
+    .print-header {
+        display: block !important;
+        text-align: center;
+        margin-bottom: 30px;
+        page-break-after: avoid;
+    }
+    
+    .print-header img {
+        max-height: 60px;
+        margin-bottom: 10px;
+    }
+    
+    /* Page breaks */
+    .page-break {
+        page-break-before: always;
+        margin-top: 0 !important;
+    }
+    
+    /* Keep content together */
+    .keep-together {
+        page-break-inside: avoid;
+    }
+    
+    /* Full width for print */
+    .main .block-container {
+        max-width: 100% !important;
+        padding: 10mm !important;
+    }
+    
+    /* Ensure Plotly charts are visible */
+    .js-plotly-plot {
+        visibility: visible !important;
+        break-inside: avoid !important;
+    }
+    
+    /* Page setup */
+    @page {
+        size: A4;
+        margin: 15mm;
+    }
+}
+
+/* Hide print elements on screen */
+.print-header {
+    display: none;
+}
+</style>
+""", unsafe_allow_html=True)
+
 # Title
 st.title("🔍 Content Gap Analyser")
 st.markdown("I'll help you understand how well your content covers key topics compared to what search engines expect.")
@@ -79,8 +143,6 @@ if 'analysis_stage' not in st.session_state:
     st.session_state.analysis_stage = 0
 if 'analysis_results' not in st.session_state:
     st.session_state.analysis_results = {}
-
-
 
 
 # Helper function to create Plotly hierarchy graph
@@ -186,6 +248,14 @@ def create_hierarchy_graph(hierarchy: DimensionHierarchy):
     )
     
     return fig
+
+def get_base64_logo(logo_path="assets/logo.png"):
+    """Convert logo to base64 for embedding"""
+    try:
+        with open(logo_path, "rb") as f:
+            return base64.b64encode(f.read()).decode()
+    except:
+        return None
 
 # Sidebar for inputs
 with st.sidebar:
@@ -358,6 +428,7 @@ if st.session_state.analysis_stage == 2 and 'analysis' in st.session_state.analy
     with results_container:
         st.header("📈 Gap Analysis Results")
         
+        st.markdown('<div class="keep-together">', unsafe_allow_html=True)
         # KPIs
         col1, col2, col3, col4 = st.columns(4)
         
@@ -394,6 +465,10 @@ if st.session_state.analysis_stage == 2 and 'analysis' in st.session_state.analy
                 f"{coverage_pct:.0f}%",
                 help="Percentage of topics with good coverage"
             )
+
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        st.markdown('<div class="page-break"></div>', unsafe_allow_html=True)
 
         # Detailed Analysis Table
         st.subheader("Detailed Topic Analysis")
@@ -438,6 +513,7 @@ if st.session_state.analysis_stage == 2 and 'analysis' in st.session_state.analy
             # Add separator
             st.markdown("---")
         
+        st.markdown('<div class="page-break"></div>', unsafe_allow_html=True)
         # Recommendations
         st.subheader("💡 My Recommendations")
         st.markdown("Based on the analysis, here's what I suggest you focus on:")
@@ -463,6 +539,7 @@ if st.session_state.analysis_stage == 2 and 'analysis' in st.session_state.analy
             # Create summary report
             summary = f"""# Content Gap Analysis Report
 Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}
+
 
 ## Overview
 - **URL Analyzed**: {results.target_url}
