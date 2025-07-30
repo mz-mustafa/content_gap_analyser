@@ -7,8 +7,8 @@ from models.data_models import ExtractedContent
 class ContentExtractor:
     """Orchestrates URL fetching and content extraction"""
     
-    def __init__(self):
-        self.fetcher = PageFetcher()
+    def __init__(self, delay_range=(1, 3), max_retries=3):
+        self.fetcher = PageFetcher(delay_range=delay_range, max_retries=max_retries)
         self.scraper = HierarchicalScraper()
     
     def extract_from_url(self, url: str) -> ExtractedContent:
