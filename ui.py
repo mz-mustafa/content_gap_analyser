@@ -2,12 +2,14 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
+import plotly.io as pio
 import json
 import time
 from datetime import datetime
 from pathlib import Path
 import csv
 import base64
+from io import BytesIO
 
 # Import our modules
 from config import DEEPSEEK_API_KEY
@@ -78,9 +80,9 @@ st.markdown("""
     /* Hide Streamlit UI elements */
     header[data-testid="stHeader"],
     section[data-testid="stSidebar"],
-    button,
-    footer,
-    .stDownloadButton {
+    .stDownloadButton,
+    button[kind="secondary"],
+    button[kind="primary"] {
         display: none !important;
     }
     
@@ -117,7 +119,41 @@ st.markdown("""
     /* Ensure Plotly charts are visible */
     .js-plotly-plot {
         visibility: visible !important;
+        display: block !important;
         break-inside: avoid !important;
+        margin: 20px 0 !important;
+    }
+    
+    .js-plotly-plot .plotly .modebar {
+        display: none !important;
+    }
+    
+    table {
+        border-collapse: collapse;
+        width: 100%;
+    }
+    
+    td, th {
+        border: 1px solid #ddd;
+        padding: 8px;
+        text-align: left;
+    }
+    
+    [data-testid="metric-container"] {
+        border: 1px solid #e0e0e0;
+        padding: 10px;
+        margin: 5px;
+    }
+    
+    * {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+    }
+    
+    .stProgress > div > div {
+        background-color: #0068C9 !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
     }
     
     /* Page setup */
@@ -130,6 +166,9 @@ st.markdown("""
 /* Hide print elements on screen */
 .print-header {
     display: none;
+}
+.pdf-download-btn:hover {
+    background-color: #FF6B6B !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -249,6 +288,449 @@ def create_hierarchy_graph(hierarchy: DimensionHierarchy):
     
     return fig
 
+def generate_pdf_report(results, hierarchy, plotly_fig):
+    """Generate PDF report content as HTML with embedded chart"""
+    good_dims = [ds for ds in results.dimension_scores if ds.score > 50]
+    poor_dims = [ds for ds in results.dimension_scores if ds.score <= 50]
+    coverage_pct = (len(good_dims) / len(results.dimension_scores) * 100) if results.dimension_scores else 0
+    
+    plotly_html = plotly_fig.to_html(
+        div_id="hierarchy-chart",
+        include_plotlyjs='cdn',
+        config={'displayModeBar': False}
+    )
+    
+    logo_html = ""
+    logo_base64 = get_base64_logo()
+    if logo_base64:
+        logo_html = f'<img src="data:image/png;base64,{logo_base64}" alt="Logo" style="max-height: 60px; margin-bottom: 20px;">'
+    
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <title>Content Gap Analysis Report - {datetime.now().strftime('%Y-%m-%d')}</title>
+        <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+        <style>
+            body {{ 
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; 
+                margin: 0;
+                padding: 40px;
+                color: #333;
+                line-height: 1.6;
+                background: #ffffff;
+            }}
+            .container {{
+                max-width: 1200px;
+                margin: 0 auto;
+            }}
+            .header {{
+                text-align: center;
+                margin-bottom: 40px;
+                padding-bottom: 20px;
+                border-bottom: 2px solid #e0e0e0;
+            }}
+            h1 {{ 
+                color: #1f77b4; 
+                font-size: 2.5em;
+                margin: 20px 0;
+            }}
+            h2 {{ 
+                color: #2563eb; 
+                margin-top: 40px;
+                margin-bottom: 20px;
+                font-size: 1.8em;
+                border-bottom: 1px solid #e0e0e0;
+                padding-bottom: 10px;
+            }}
+            .meta-info {{
+                background: #f8f9fa;
+                padding: 20px;
+                border-radius: 8px;
+                margin-bottom: 30px;
+            }}
+            .meta-info p {{
+                margin: 5px 0;
+            }}
+            .metrics-container {{
+                display: flex;
+                justify-content: space-around;
+                flex-wrap: wrap;
+                gap: 20px;
+                margin: 30px 0;
+            }}
+            .metric-box {{ 
+                background: #f0f9ff; 
+                border: 2px solid #0284c7; 
+                padding: 20px; 
+                border-radius: 8px;
+                text-align: center;
+                min-width: 180px;
+                flex: 1;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }}
+            .metric-value {{ 
+                font-size: 2.5em; 
+                font-weight: bold; 
+                color: #0284c7; 
+                margin: 10px 0;
+            }}
+            .metric-label {{ 
+                font-size: 1em; 
+                color: #666; 
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+            }}
+            .chart-container {{
+                margin: 40px 0;
+                padding: 20px;
+                background: #fafafa;
+                border-radius: 8px;
+                border: 1px solid #e0e0e0;
+            }}
+            .score-bar {{
+                height: 8px;
+                background: #e0e0e0;
+                border-radius: 4px;
+                overflow: hidden;
+            }}
+            table {{
+                width: 100%;
+                border-collapse: collapse;
+                margin: 20px 0;
+            }}
+            th {{
+                text-align: left;
+                padding: 12px;
+                border-bottom: 2px solid #e0e0e0;
+                font-weight: 600;
+                color: #333;
+                background: #fafafa;
+            }}
+            td {{
+                padding: 16px 12px;
+                border-bottom: 1px solid #f0f0f0;
+                vertical-align: top;
+            }}
+            tbody tr:hover {{
+                background: #f9f9f9;
+            }}
+            .recommendation {{
+                background: #e3f2fd;
+                border-left: 4px solid #2196F3;
+                padding: 20px;
+                margin: 15px 0;
+                border-radius: 0 8px 8px 0;
+                page-break-inside: avoid;
+            }}
+            .recommendation strong {{
+                color: #1976D2;
+                font-size: 1.1em;
+            }}
+            @media print {{
+                body {{ 
+                    margin: 20px;
+                    padding: 0;
+                }}
+                .no-print {{ display: none !important; }}
+                .page-break {{ page-break-before: always; }}
+                .dimension-row, .recommendation {{ page-break-inside: avoid; }}
+            }}
+            @page {{
+                size: A4;
+                margin: 20mm;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                {logo_html}
+                <h1>Content Gap Analysis Report</h1>
+                <p style="color: #666; font-size: 1.1em;">Comprehensive Analysis of Content Coverage</p>
+            </div>
+            
+            <div class="meta-info">
+                <p><strong>Report Generated:</strong> {datetime.now().strftime('%B %d, %Y at %I:%M %p')}</p>
+                <p><strong>URL Analyzed:</strong> <a href="{results.target_url}" target="_blank">{results.target_url}</a></p>
+                <p><strong>Key Topic:</strong> {results.key_word}</p>
+                <p><strong>Analysis ID:</strong> {datetime.now().strftime('%Y%m%d-%H%M%S')}</p>
+            </div>
+            
+            <h2>Executive Summary</h2>
+            <div class="metrics-container">
+                <div class="metric-box">
+                    <div class="metric-label">Overall Score</div>
+                    <div class="metric-value">{results.overall_score}/100</div>
+                </div>
+                <div class="metric-box">
+                    <div class="metric-label">Strong Topics</div>
+                    <div class="metric-value">{len(good_dims)}</div>
+                </div>
+                <div class="metric-box">
+                    <div class="metric-label">Weak Topics</div>
+                    <div class="metric-value">{len(poor_dims)}</div>
+                </div>
+                <div class="metric-box">
+                    <div class="metric-label">Coverage Rate</div>
+                    <div class="metric-value">{coverage_pct:.0f}%</div>
+                </div>
+            </div>
+            
+            <h2>Topic Hierarchy Visualization</h2>
+            <div class="chart-container">
+                {plotly_html}
+            </div>
+            
+            <div class="page-break"></div>
+            
+            <h2>Detailed Topic Analysis</h2>
+            <p style="color: #666; margin-bottom: 20px;">
+                Here's how well your content covers each main topic:
+            </p>
+            
+            <table style="width: 100%; border-collapse: collapse;">
+                <thead>
+                    <tr style="border-bottom: 2px solid #e0e0e0;">
+                        <th style="text-align: left; padding: 12px; width: 30%;">Topic</th>
+                        <th style="text-align: left; padding: 12px; width: 15%;">Score</th>
+                        <th style="text-align: left; padding: 12px; width: 15%;">Status</th>
+                        <th style="text-align: left; padding: 12px; width: 35%;">Analysis</th>
+                        <th style="text-align: left; padding: 12px; width: 5%;">Coverage</th>
+                    </tr>
+                </thead>
+                <tbody>
+    """
+    
+    for ds in results.dimension_scores:
+        score_class = "high" if ds.score > 50 else "low"
+        path_parts = ds.dimension_path.split(' > ')
+        level = len(path_parts)
+        indent = "&nbsp;" * (4 * (level - 1))
+        
+        # Format dimension name based on level
+        if level == 1:
+            name_html = f"<strong>{path_parts[-1]}</strong>"
+        else:
+            name_html = f"{indent}└─ {path_parts[-1]}"
+        
+        # Status badge
+        if ds.score > 50:
+            status_html = '<span style="background: #4CAF50; color: white; padding: 4px 12px; border-radius: 4px; font-size: 0.85em;">✅ Strong</span>'
+        else:
+            status_html = '<span style="background: #FFECEC; color: red; padding: 4px 12px; border-radius: 4px; font-size: 0.85em;">❌ Needs Work</span>'
+        
+        # Coverage
+        coverage_html = ds.child_coverage if ds.child_coverage else "-"
+        
+        html_content += f"""
+                    <tr style="border-bottom: 1px solid #f0f0f0;">
+                        <td style="padding: 16px 12px; vertical-align: top;">{name_html}</td>
+                        <td style="padding: 16px 12px; vertical-align: top;">
+                            <div style="display: flex; flex-direction: column; gap: 5px;">
+                                <div class="score-bar" style="width: 100px; height: 8px; background: #e0e0e0; border-radius: 4px; overflow: hidden;">
+                                    <div style="width: {ds.score}%; height: 100%; background: {'#1C83E1' if ds.score > 50 else '#1C83E1'}; border-radius: 4px;"></div>
+                                </div>
+                                <span style="font-size: 0.85em; color: #666;">{ds.score}%</span>
+                            </div>
+                        </td>
+                        <td style="padding: 16px 12px; vertical-align: top;">{status_html}</td>
+                        <td style="padding: 16px 12px; vertical-align: top; color: #555; font-size: 0.95em; line-height: 1.5;">{ds.reasoning}</td>
+                        <td style="padding: 16px 12px; vertical-align: top; text-align: center; color: #666;">{coverage_html}</td>
+                    </tr>
+        """
+    
+    html_content += """
+                </tbody>
+            </table>
+            
+            <div class="page-break"></div>
+            
+            <h2>Strategic Recommendations</h2>
+            <p style="color: #666; margin-bottom: 20px;">
+                Based on the gap analysis, here are prioritized recommendations to improve your content coverage:
+            </p>
+    """
+    
+    for i, rec in enumerate(results.recommendations, 1):
+        html_content += f"""
+        <div class="recommendation">
+            <strong>Priority {i}:</strong> {rec}
+        </div>
+        """
+    
+    html_content += """
+            <div style="margin-top: 60px; padding-top: 30px; border-top: 2px solid #e0e0e0; text-align: center; color: #666;">
+                <p>This report was automatically generated by the Content Gap Analyzer</p>
+                <p>For questions or support, please contact your SEO team</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    
+    return html_content
+
+def generate_pdf_report_without_chart(results, hierarchy):
+    """Generate PDF report content as HTML without chart (fallback)"""
+    good_dims = [ds for ds in results.dimension_scores if ds.score > 50]
+    poor_dims = [ds for ds in results.dimension_scores if ds.score <= 50]
+    coverage_pct = (len(good_dims) / len(results.dimension_scores) * 100) if results.dimension_scores else 0
+    
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <style>
+            body {{ font-family: Arial, sans-serif; margin: 40px; color: #333; }}
+            h1 {{ color: #1f77b4; border-bottom: 2px solid #1f77b4; padding-bottom: 10px; }}
+            h2 {{ color: #2563eb; margin-top: 30px; }}
+            .metric-box {{ 
+                display: inline-block; 
+                background: #f0f9ff; 
+                border: 1px solid #0284c7; 
+                padding: 15px; 
+                margin: 10px;
+                border-radius: 5px;
+                text-align: center;
+                min-width: 150px;
+            }}
+            .metric-value {{ font-size: 24px; font-weight: bold; color: #0284c7; }}
+            .metric-label {{ font-size: 14px; color: #666; margin-top: 5px; }}
+            .hierarchy-text {{
+                background: #f5f5f5;
+                padding: 20px;
+                border-radius: 5px;
+                font-family: monospace;
+                white-space: pre-wrap;
+                margin: 20px 0;
+            }}
+            .score-bar {{
+                width: 100%;
+                height: 20px;
+                background: #e0e0e0;
+                border-radius: 10px;
+                overflow: hidden;
+                margin: 5px 0;
+            }}
+            .score-fill {{
+                height: 100%;
+                background: #4CAF50;
+            }}
+            .score-fill.low {{ background: #f44336; }}
+            .dimension-row {{
+                border-bottom: 1px solid #eee;
+                padding: 15px 0;
+                page-break-inside: avoid;
+            }}
+            .dimension-name {{ font-weight: bold; margin-bottom: 5px; }}
+            .dimension-score {{ 
+                display: inline-block; 
+                font-weight: bold;
+                padding: 2px 8px;
+                border-radius: 3px;
+                color: white;
+            }}
+            .score-high {{ background: #4CAF50; }}
+            .score-low {{ background: #f44336; }}
+            .recommendation {{
+                background: #e3f2fd;
+                border-left: 4px solid #2196F3;
+                padding: 15px;
+                margin: 10px 0;
+                page-break-inside: avoid;
+            }}
+            @page {{
+                size: A4;
+                margin: 20mm;
+            }}
+            @media print {{
+                body {{ margin: 20px; }}
+                .page-break {{ page-break-before: always; }}
+            }}
+        </style>
+    </head>
+    <body>
+        <h1>Content Gap Analysis Report</h1>
+        <p><strong>Generated:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
+        <p><strong>URL Analyzed:</strong> {results.target_url}</p>
+        <p><strong>Key Topic:</strong> {results.key_word}</p>
+        
+        <h2>Overview Metrics</h2>
+        <div style="text-align: center;">
+            <div class="metric-box">
+                <div class="metric-value">{results.overall_score}/100</div>
+                <div class="metric-label">Overall Score</div>
+            </div>
+            <div class="metric-box">
+                <div class="metric-value">{len(good_dims)}</div>
+                <div class="metric-label">Strong Topics</div>
+            </div>
+            <div class="metric-box">
+                <div class="metric-value">{len(poor_dims)}</div>
+                <div class="metric-label">Weak Topics</div>
+            </div>
+            <div class="metric-box">
+                <div class="metric-value">{coverage_pct:.0f}%</div>
+                <div class="metric-label">Coverage</div>
+            </div>
+        </div>
+        
+        <h2>Topic Hierarchy</h2>
+        <div class="hierarchy-text">"""
+    
+    # Add text representation of hierarchy
+    def format_hierarchy(hierarchy):
+        lines = [hierarchy.key_word]
+        for item in hierarchy.structured:
+            if item['level'] > 0:
+                indent = "  " * (item['level'] - 1)
+                prefix = "└─ " if item['level'] == 1 else "  └─ "
+                lines.append(f"{indent}{prefix}{item['name']}")
+        return "\n".join(lines)
+    
+    html_content += format_hierarchy(hierarchy)
+    html_content += """</div>
+        
+        <div class="page-break"></div>
+        
+        <h2>Detailed Topic Analysis</h2>
+    """
+    
+    for ds in results.dimension_scores:
+        score_class = "high" if ds.score > 50 else "low"
+        fill_class = "" if ds.score > 50 else "low"
+        path_parts = ds.dimension_path.split(' > ')
+        indent = "&nbsp;" * (4 * (len(path_parts) - 1))
+        
+        html_content += f"""
+        <div class="dimension-row">
+            <div class="dimension-name">{indent}{path_parts[-1]}</div>
+            <div class="score-bar">
+                <div class="score-fill {fill_class}" style="width: {ds.score}%"></div>
+            </div>
+            <span class="dimension-score score-{score_class}">{ds.score}%</span>
+            <p style="margin: 10px 0; color: #666;">{ds.reasoning}</p>
+        </div>
+        """
+    
+    html_content += """<div class="page-break"></div>"""
+    html_content += "<h2>Recommendations</h2>"
+    for i, rec in enumerate(results.recommendations, 1):
+        html_content += f"""
+        <div class="recommendation">
+            <strong>Priority {i}:</strong> {rec}
+        </div>
+        """
+    
+    html_content += """
+    </body>
+    </html>
+    """
+    
+    return html_content
+
 def get_base64_logo(logo_path="assets/logo.png"):
     """Convert logo to base64 for embedding"""
     try:
@@ -291,6 +773,29 @@ progress_container = st.container()
 hierarchy_container = st.container()
 content_container = st.container()
 results_container = st.container()
+
+if 'hierarchy' in st.session_state.analysis_results and st.session_state.analysis_stage >= 1 and not run_analysis:
+    with hierarchy_container:
+        st.header("📊 Dimension Hierarchy")
+        st.markdown("Here's how I've organized all the topics:")
+        hierarchy = st.session_state.analysis_results['hierarchy']
+        
+        if 'plotly_fig' not in st.session_state.analysis_results:
+            fig = create_hierarchy_graph(hierarchy)
+            st.session_state.analysis_results['plotly_fig'] = fig
+        else:
+            fig = st.session_state.analysis_results['plotly_fig']
+        
+        st.plotly_chart(fig, use_container_width=True, key="hierarchy_chart_persistent")
+        
+        with st.expander("View as text"):
+            lines = [hierarchy.key_word]
+            for item in hierarchy.structured:
+                if item['level'] > 0:
+                    indent = "  " * (item['level'] - 1)
+                    prefix = "└─ " if item['level'] == 1 else "  └─ "
+                    lines.append(f"{indent}{prefix}{item['name']}")
+            st.text('\n'.join(lines))
 
 # Main analysis flow
 if run_analysis:
@@ -365,7 +870,8 @@ if run_analysis:
                 
                 # Create and display Plotly graph
                 fig = create_hierarchy_graph(hierarchy)
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, use_container_width=True, key="hierarchy_chart_analysis")
+                st.session_state.analysis_results['plotly_fig'] = fig
                 
                 # Also show text representation
                 with st.expander("View as text"):
@@ -426,6 +932,18 @@ if st.session_state.analysis_stage == 2 and 'analysis' in st.session_state.analy
     hierarchy = st.session_state.analysis_results['hierarchy']
     
     with results_container:
+        logo_base64 = get_base64_logo()
+        if logo_base64:
+            st.markdown(f"""
+            <div class="print-header">
+                <img src="data:image/png;base64,{logo_base64}" alt="Logo">
+                <h1>Content Gap Analysis Report</h1>
+                <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
+                <p>URL: {results.target_url}</p>
+                <p>Key Topic: {results.key_word}</p>
+            </div>
+            """, unsafe_allow_html=True)
+        
         st.header("📈 Gap Analysis Results")
         
         st.markdown('<div class="keep-together">', unsafe_allow_html=True)
@@ -524,7 +1042,7 @@ if st.session_state.analysis_stage == 2 and 'analysis' in st.session_state.analy
         # Download results
         st.subheader("📥 Export Your Results")
         
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns(3)
         
         with col1:
             results_json = results.to_json()
@@ -561,6 +1079,36 @@ Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}
                 file_name=f"gap_analysis_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
                 mime="text/plain"
             )
+
+        with col3:
+            try:
+                plotly_fig = st.session_state.analysis_results.get('plotly_fig')
+                if plotly_fig:
+                    fig_copy = go.Figure(plotly_fig)
+                    pdf_html = generate_pdf_report(results, hierarchy, fig_copy)
+                    pdf_bytes = pdf_html.encode('utf-8')
+                    
+                    st.download_button(
+                        label="📑 Download Report (HTML)",
+                        data=pdf_bytes,
+                        file_name=f"content_gap_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html",
+                        mime="text/html",
+                        help="Download HTML report • Open in browser • Print to PDF (Ctrl+P)"
+                    )
+                else:
+                    st.error("Chart not available for export")
+            except Exception as e:
+                st.error(f"Error generating report: {str(e)}")
+                pdf_html = generate_pdf_report_without_chart(results, hierarchy)
+                pdf_bytes = pdf_html.encode('utf-8')
+                
+                st.download_button(
+                    label="📑 Download Report (Text Only)",
+                    data=pdf_bytes,
+                    file_name=f"content_gap_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html",
+                    mime="text/html",
+                    help="Download report without charts"
+                )
 
 # Default view when no analysis is running
 elif st.session_state.analysis_stage == 0:
